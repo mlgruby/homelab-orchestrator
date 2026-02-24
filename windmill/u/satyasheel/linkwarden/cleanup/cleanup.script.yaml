@@ -1,0 +1,53 @@
+summary: Linkwarden Cleanup - Check dead links, stale content, duplicates, and freshness
+description: ''
+lock: '!inline u/satyasheel/linkwarden/cleanup/cleanup.script.lock'
+kind: script
+schema:
+  type: object
+  properties:
+    linkwarden_api_key:
+      type: string
+      description: Linkwarden API key
+      default: null
+      originalType: string
+    linkwarden_url:
+      type: string
+      description: Base URL for Linkwarden instance
+      default: null
+      originalType: string
+    dry_run:
+      type: boolean
+      description: If true, no actual deletions will happen (report only)
+      default: true
+      originalType: boolean
+    check_dead_links_enabled:
+      type: boolean
+      description: Enable dead link checking (404, 403, timeouts, etc.)
+      default: true
+      originalType: boolean
+    check_stale_links_enabled:
+      type: boolean
+      description: Enable stale link detection (old links with no metadata)
+      default: true
+      originalType: boolean
+    check_url_duplicates_enabled:
+      type: boolean
+      description: Enable URL normalization audit (find duplicate URLs)
+      default: true
+      originalType: boolean
+    check_freshness_enabled:
+      type: boolean
+      description: Enable content freshness check (archived repos, updated content)
+      default: true
+      originalType: boolean
+    stale_days:
+      type: integer
+      description: Links older than this many days (with no description/tags) are stale
+      default: 365
+      originalType: integer
+    dead_link_timeout:
+      type: integer
+      description: Timeout in seconds for checking if links are dead
+      default: 10
+      originalType: integer
+  required: []
