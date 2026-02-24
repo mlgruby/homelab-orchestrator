@@ -1,0 +1,7 @@
+value: "gemini-2.5-flash"
+is_secret: false
+description: "Gemini model used by linkwarden organiser"
+extra_perms: {}
+account: null
+is_oauth: false
+is_expired: false

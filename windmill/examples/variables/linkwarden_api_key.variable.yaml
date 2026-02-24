@@ -1,0 +1,7 @@
+value: "__SET_IN_WINDMILL_UI__"
+is_secret: true
+description: "Linkwarden API key"
+extra_perms: {}
+account: null
+is_oauth: false
+is_expired: false

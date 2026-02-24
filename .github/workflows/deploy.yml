@@ -20,6 +20,7 @@ jobs:
       WM_URL: ${{ secrets.WM_URL }}
       WM_WORKSPACE: ${{ secrets.WM_WORKSPACE }}
       WM_TOKEN: ${{ secrets.WM_TOKEN }}
+      ALLOW_WMILL_PUSH: ${{ secrets.ALLOW_WMILL_PUSH }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -46,7 +47,29 @@ jobs:
             exit 1
           fi
 
+          if [ "${ALLOW_WMILL_PUSH:-}" != "true" ]; then
+            echo "::error::Set secret ALLOW_WMILL_PUSH=true to enable sync push."
+            echo "::error::This guard prevents accidental destructive Windmill syncs."
+            exit 1
+          fi
+
+      - name: Validate Windmill sync tree
+        working-directory: windmill
+        run: |
+          set -euo pipefail
+          if [ ! -f "wmill.yaml" ]; then
+            echo "::error::windmill/wmill.yaml not found."
+            exit 1
+          fi
+
+          if [ -z "$(find u f -type f -not -name '.gitkeep' -print -quit 2>/dev/null)" ]; then
+            echo "::error::No Windmill resource files found under windmill/u or windmill/f."
+            echo "::error::Run an initial sync pull and commit resources before push."
+            exit 1
+          fi
+
       - name: Deploy Windmill workspace
+        working-directory: windmill
         run: |
           set -euo pipefail
           wmill sync push \

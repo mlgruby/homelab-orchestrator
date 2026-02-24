@@ -1,12 +1,14 @@
 skipSecrets: true
 includeSchedules: true
 includeTriggers: true
+skipVariables: true
 
 includes:
+  - "u/**"
   - "f/**"
-  - "scripts/**"
-  - "flows/**"
 
 excludes:
   - "**/.DS_Store"
   - "**/*.tmp"
+  - "**/__pycache__/**"
+  - "**/*.pyc"

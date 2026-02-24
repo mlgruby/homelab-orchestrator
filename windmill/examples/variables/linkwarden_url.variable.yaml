@@ -1,0 +1,7 @@
+value: "http://your-linkwarden-host:3000"
+is_secret: false
+description: "Base URL for Linkwarden instance"
+extra_perms: {}
+account: null
+is_oauth: false
+is_expired: false
