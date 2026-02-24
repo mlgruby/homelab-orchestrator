@@ -20,7 +20,6 @@ jobs:
       WM_URL: ${{ secrets.WM_URL }}
       WM_WORKSPACE: ${{ secrets.WM_WORKSPACE }}
       WM_TOKEN: ${{ secrets.WM_TOKEN }}
-      N8N_CONTAINER_NAME: ${{ secrets.N8N_CONTAINER_NAME }}
     steps:
       - uses: actions/checkout@v4
 
@@ -28,7 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for key in WM_URL WM_WORKSPACE WM_TOKEN N8N_CONTAINER_NAME; do
+          for key in WM_URL WM_WORKSPACE WM_TOKEN; do
             if [ -z "${!key:-}" ]; then
               echo "::error::Missing required secret: $key"
               missing=1
@@ -52,21 +51,3 @@ jobs:
             --workspace "$WM_WORKSPACE" \
             --token "$WM_TOKEN" \
             --yes
-
-      - name: Import n8n workflows
-        run: |
-          set -euo pipefail
-          if ! command -v docker >/dev/null 2>&1; then
-            echo "::error::docker is not available on this runner."
-            exit 1
-          fi
-
-          if [ -z "$(find n8n/workflows -maxdepth 1 -type f -name '*.json' -print -quit)" ]; then
-            echo "No n8n workflow JSON files found under n8n/workflows; skipping import."
-            exit 0
-          fi
-
-          docker exec "$N8N_CONTAINER_NAME" mkdir -p /data/workflows
-          docker cp n8n/workflows/. "$N8N_CONTAINER_NAME:/data/workflows/"
-          docker exec -u node "$N8N_CONTAINER_NAME" \
-            n8n import:workflow --separate --input=/data/workflows
