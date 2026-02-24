@@ -615,9 +615,9 @@ def update_link(link_id, collection, tags, description):
 # --- Main ---
 
 def main(
-    linkwarden_url: str = "",
-    linkwarden_api_key: str = "",
-    gemini_api_key: str = "",
+    linkwarden_url: str = None,
+    linkwarden_api_key: str = None,
+    gemini_api_key: str = None,
     gemini_model: str = "gemini-2.5-flash"
 ):
     """Windmill-compatible entry point for AI Librarian."""
