@@ -1,0 +1,20 @@
+description: ''
+args:
+  gemini_api_key: $var:u/satyasheel/GEMINI_API_KEY
+  gemini_model: $var:u/satyasheel/GEMINI_MODEL
+  linkwarden_api_key: $var:u/satyasheel/LINKWARDEN_API_KEY
+  linkwarden_url: $var:u/satyasheel/LINKWARDEN_URL
+cron_version: v2
+email: satyasheel@ymail.com
+enabled: true
+is_flow: false
+no_flow_overlap: false
+on_failure_exact: false
+on_failure_times: 1
+on_recovery_extra_args: {}
+on_recovery_times: 1
+on_success_extra_args: {}
+schedule: 0 */2 * * * *
+script_path: u/satyasheel/linkwarden/linkwarden_organiser
+timezone: Europe/London
+ws_error_handler_muted: false

@@ -1,22 +1,28 @@
 summary: AI Librarian - Categorize Linkwarden bookmarks using Gemini AI
-description: ""
+description: ''
+lock: '!inline u/satyasheel/linkwarden/linkwarden_organiser.script.lock'
+kind: script
 schema:
   type: object
   properties:
-    linkwarden_url:
-      type: string
-      description: Base URL for Linkwarden instance
-      default: ""
-    linkwarden_api_key:
-      type: string
-      description: Linkwarden API key
-      default: ""
     gemini_api_key:
       type: string
       description: Gemini API key
-      default: ""
+      default: null
+      originalType: string
     gemini_model:
       type: string
       description: Gemini model
       default: gemini-2.5-flash
+      originalType: string
+    linkwarden_api_key:
+      type: string
+      description: Linkwarden API key
+      default: null
+      originalType: string
+    linkwarden_url:
+      type: string
+      description: Base URL for Linkwarden instance
+      default: null
+      originalType: string
   required: []
