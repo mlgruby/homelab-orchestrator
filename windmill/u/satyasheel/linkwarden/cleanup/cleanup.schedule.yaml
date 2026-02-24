@@ -19,7 +19,7 @@ on_failure_times: 1
 on_recovery_extra_args: {}
 on_recovery_times: 1
 on_success_extra_args: {}
-schedule: 0 0 * * 0
+schedule: 0 0 0 * * 0
 script_path: u/satyasheel/linkwarden/cleanup/cleanup
 timezone: Europe/London
 ws_error_handler_muted: false
