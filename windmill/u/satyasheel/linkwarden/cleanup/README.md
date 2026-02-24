@@ -8,6 +8,9 @@ Automated cleanup for your Linkwarden bookmarks.
 - Scans all links and checks HTTP status codes
 - Identifies 404s, 403s, 410s, server errors
 - Detects SSL certificate errors, timeouts, connection failures
+- **Smart retry logic**: Retries transient failures (timeouts, 500s, rate limits) up to 2 times
+- **Skips X.com/Twitter**: These sites block bots, so they're excluded from checks
+- **GitHub 403 handling**: Treats as "likely private repo" instead of dead link
 - Auto-deletes high-confidence dead links (404, 410) when `dry_run=false`
 
 ### 2. Stale Link Detection 📅
@@ -49,6 +52,7 @@ Automated cleanup for your Linkwarden bookmarks.
 | `check_freshness_enabled` | `true` | Enable content freshness checks |
 | `stale_days` | `365` | Links older than this are considered stale |
 | `dead_link_timeout` | `10` | Timeout (seconds) for checking links |
+| `dead_link_max_retries` | `2` | Number of retry attempts for transient failures |
 
 ## Usage
 

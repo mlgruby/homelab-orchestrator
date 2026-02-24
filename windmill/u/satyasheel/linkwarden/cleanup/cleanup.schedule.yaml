@@ -9,6 +9,7 @@ args:
   check_freshness_enabled: true
   stale_days: 365
   dead_link_timeout: 10
+  dead_link_max_retries: 2
 cron_version: v2
 email: satyasheel@ymail.com
 enabled: false

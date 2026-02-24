@@ -2,10 +2,9 @@
 """Linkwarden Cleanup - Check dead links, stale content, URL duplicates, and freshness"""
 
 import requests
-import json
 import time
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
 from collections import defaultdict
 from functools import wraps
@@ -18,7 +17,7 @@ INBOX_COLLECTION_ID = None  # Will be auto-detected by finding "Unorganized" col
 # Cleanup thresholds (configurable via env vars)
 STALE_DAYS = 365  # Links older than this with no description/tags are considered stale
 DEAD_LINK_TIMEOUT = 10  # Seconds to wait for link response
-CHECK_FRESHNESS_FOR_DOMAINS = ["github.com", "medium.com", "dev.to", "stackoverflow.com"]
+CHECK_FRESHNESS_FOR_DOMAINS = ["github.com"]
 
 # --- Retry decorator ---
 
@@ -48,12 +47,6 @@ def _lw_headers(with_json=False):
 @retry_with_backoff(max_retries=2)
 def _lw_get(path, params=None, timeout=10):
     r = requests.get(f"{LINKWARDEN_URL}{path}", headers=_lw_headers(), params=params, timeout=timeout)
-    r.raise_for_status()
-    return r.json()
-
-@retry_with_backoff(max_retries=2)
-def _lw_put(path, body, timeout=30):
-    r = requests.put(f"{LINKWARDEN_URL}{path}", headers=_lw_headers(True), json=body, timeout=timeout)
     r.raise_for_status()
     return r.json()
 
@@ -123,70 +116,141 @@ def find_collection(colls, **kw):
 
 # --- Cleanup Feature 1: Dead Link Checker ---
 
-def check_link_status(url):
-    """Check if a link is accessible. Returns (status_code, is_dead, reason)"""
-    try:
-        # Use HEAD request first (faster)
-        r = requests.head(
-            url,
-            timeout=DEAD_LINK_TIMEOUT,
-            allow_redirects=True,
-            headers={'User-Agent': 'Mozilla/5.0 (compatible; LinkwardenCleanup/1.0)'}
-        )
-        status = r.status_code
-
-        # If HEAD not allowed, try GET
-        if status == 405:
-            r = requests.get(
+def check_link_status(url, max_retries=2):
+    """Check if a link is accessible with retry logic. Returns (status_code, is_dead, reason)"""
+    for attempt in range(max_retries):
+        try:
+            # Use HEAD request first (faster)
+            r = requests.head(
                 url,
                 timeout=DEAD_LINK_TIMEOUT,
                 allow_redirects=True,
-                headers={'User-Agent': 'Mozilla/5.0 (compatible; LinkwardenCleanup/1.0)'},
-                stream=True
+                headers={'User-Agent': 'Mozilla/5.0 (compatible; LinkwardenCleanup/1.0)'}
             )
             status = r.status_code
 
-        if status == 404:
-            return status, True, "Not Found (404)"
-        elif status == 403:
-            return status, True, "Forbidden (403)"
-        elif status == 410:
-            return status, True, "Gone (410)"
-        elif status >= 500:
-            return status, True, f"Server Error ({status})"
-        elif status >= 400:
-            return status, True, f"Client Error ({status})"
-        else:
-            return status, False, "OK"
+            # If HEAD not allowed, try GET
+            if status == 405:
+                r = requests.get(
+                    url,
+                    timeout=DEAD_LINK_TIMEOUT,
+                    allow_redirects=True,
+                    headers={'User-Agent': 'Mozilla/5.0 (compatible; LinkwardenCleanup/1.0)'},
+                    stream=True
+                )
+                status = r.status_code
 
-    except requests.exceptions.SSLError:
-        return None, True, "SSL Certificate Error"
-    except requests.exceptions.Timeout:
-        return None, True, "Timeout"
-    except requests.exceptions.ConnectionError:
-        return None, True, "Connection Error"
-    except requests.exceptions.TooManyRedirects:
-        return None, True, "Too Many Redirects"
-    except Exception as e:
-        return None, False, f"Unknown Error: {str(e)[:50]}"
+            # Permanent failures - don't retry
+            if status == 404:
+                return status, True, "Not Found (404)"
+            elif status == 410:
+                return status, True, "Gone (410)"
 
-def check_dead_links(all_links, collections):
+            # GitHub 403 - likely private repo
+            elif status == 403:
+                parsed = urlparse(url)
+                domain = (parsed.hostname or '').lower()
+                if 'github.com' in domain:
+                    return status, False, "GitHub 403 (likely private repo)"
+                # Non-GitHub 403 - might be temporary, retry
+                if attempt < max_retries - 1:
+                    time.sleep(1 * (attempt + 1))
+                    continue
+                return status, True, "Forbidden (403)"
+
+            # Server errors - retry
+            elif status >= 500:
+                if attempt < max_retries - 1:
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                return status, True, f"Server Error ({status})"
+
+            # Rate limiting - retry with longer delay
+            elif status == 429:
+                if attempt < max_retries - 1:
+                    time.sleep(3 * (attempt + 1))
+                    continue
+                return status, True, "Rate Limited (429)"
+
+            # Other client errors - don't retry
+            elif status >= 400:
+                return status, True, f"Client Error ({status})"
+
+            # Success
+            else:
+                return status, False, "OK"
+
+        except requests.exceptions.SSLError as e:
+            # SSL errors are usually permanent
+            return None, True, "SSL Certificate Error"
+
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            # These might be temporary - retry
+            if attempt < max_retries - 1:
+                time.sleep(2 * (attempt + 1))
+                continue
+            # After retries exhausted
+            if isinstance(e, requests.exceptions.Timeout):
+                return None, True, "Timeout (after retries)"
+            else:
+                return None, True, "Connection Error (after retries)"
+
+        except requests.exceptions.TooManyRedirects:
+            return None, True, "Too Many Redirects"
+
+        except Exception as e:
+            return None, False, f"Unknown Error: {str(e)[:50]}"
+
+    # Should not reach here, but just in case
+    return None, True, f"Failed after {max_retries} retries"
+
+def check_dead_links(all_links, collections, max_retries=2):
     """Scan all links and identify dead ones"""
     print("\n🔍 Feature 1: Dead Link Checker")
     print("=" * 60)
+    if max_retries > 1:
+        print(f"   Retry policy: Up to {max_retries} attempts per link")
 
     dead_links = []
     checked = 0
+    skipped = 0
+
+    # Domains known to block automated checks
+    SKIP_DOMAINS = {'x.com', 'twitter.com', 'mobile.twitter.com'}
 
     for link in all_links:
         url = link.get('url', '')
-        if not url:
+        if not url or not url.strip():
+            skipped += 1
+            print(f"[{checked + skipped}/{len(all_links)}] Skipping (empty URL): {link.get('name', 'Untitled')[:50]}")
+            continue
+
+        # Skip domains that block bots
+        try:
+            parsed = urlparse(url)
+            domain = (parsed.hostname or '').lower()
+        except Exception:
+            skipped += 1
+            print(f"[{checked + skipped}/{len(all_links)}] Skipping (malformed URL): {link.get('name', 'Untitled')[:50]} - {url[:50]}")
+            continue
+
+        if not domain:
+            skipped += 1
+            print(f"[{checked + skipped}/{len(all_links)}] Skipping (no domain): {link.get('name', 'Untitled')[:50]} - {url[:50]}")
+            continue
+
+        if domain.startswith('www.'):
+            domain = domain[4:]
+
+        if domain in SKIP_DOMAINS:
+            skipped += 1
+            print(f"[{checked + skipped}/{len(all_links)}] Skipping (anti-bot protection): {link.get('name', 'Untitled')[:50]}")
             continue
 
         checked += 1
-        print(f"[{checked}/{len(all_links)}] Checking: {link.get('name', 'Untitled')[:50]}")
+        print(f"[{checked + skipped}/{len(all_links)}] Checking: {link.get('name', 'Untitled')[:50]}")
 
-        status, is_dead, reason = check_link_status(url)
+        status, is_dead, reason = check_link_status(url, max_retries=max_retries)
 
         if is_dead:
             col = find_collection(collections, id=link.get('collectionId'))
@@ -208,6 +272,9 @@ def check_dead_links(all_links, collections):
 
         time.sleep(0.5)  # Be nice to servers
 
+    if skipped > 0:
+        print(f"\n   ℹ️  Skipped {skipped} links (empty URLs, malformed, or anti-bot protected domains)")
+
     return dead_links
 
 # --- Cleanup Feature 2: Stale Link Cleanup ---
@@ -218,7 +285,7 @@ def check_stale_links(all_links, collections):
     print("=" * 60)
 
     stale_links = []
-    cutoff_date = datetime.now() - timedelta(days=STALE_DAYS)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=STALE_DAYS)
 
     for link in all_links:
         created_at = link.get('createdAt', '')
@@ -227,7 +294,7 @@ def check_stale_links(all_links, collections):
 
         try:
             created_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-        except:
+        except (ValueError, TypeError):
             continue
 
         if created_date > cutoff_date:
@@ -242,7 +309,7 @@ def check_stale_links(all_links, collections):
             col = find_collection(collections, id=link.get('collectionId'))
             col_name = col['name'] if col else 'Unknown'
 
-            age_days = (datetime.now() - created_date).days
+            age_days = (datetime.now(timezone.utc) - created_date).days
 
             stale_links.append({
                 'id': link['id'],
@@ -277,8 +344,11 @@ def check_url_duplicates(all_links, collections):
     duplicates = []
     for norm_url, links in url_groups.items():
         if len(links) > 1:
-            # Sort by creation date, keep oldest
-            links.sort(key=lambda l: l.get('createdAt', ''))
+            # Prefer keeping organized links over inbox, then oldest
+            links.sort(key=lambda l: (
+                l.get('collectionId') == INBOX_COLLECTION_ID,  # False (organized) sorts before True (inbox)
+                l.get('createdAt', '')
+            ))
             keeper = links[0]
 
             keeper_col = find_collection(collections, id=keeper.get('collectionId'))
@@ -340,33 +410,37 @@ def check_content_freshness(all_links, collections):
 
         # GitHub-specific checks
         if domain == "github.com":
-            # Check if repo is archived or deleted
             try:
                 r = requests.get(
                     url,
-                    timeout=5,
-                    headers={'User-Agent': 'Mozilla/5.0'},
-                    allow_redirects=False
+                    timeout=DEAD_LINK_TIMEOUT,
+                    headers={'User-Agent': 'Mozilla/5.0 (compatible; LinkwardenCleanup/1.0)'},
+                    allow_redirects=True,
+                    stream=True
                 )
+                # Read first chunk for archived check
+                chunk = next(r.iter_content(chunk_size=50000), b"")
+                page_text = chunk.decode('utf-8', errors='ignore').lower()
+
+                col = find_collection(collections, id=link.get('collectionId'))
+                col_name = col['name'] if col else 'Unknown'
 
                 if r.status_code == 404:
-                    col = find_collection(collections, id=link.get('collectionId'))
                     freshness_issues.append({
                         'id': link['id'],
                         'name': link.get('name', 'Untitled'),
                         'url': url,
-                        'collection': col['name'] if col else 'Unknown',
+                        'collection': col_name,
                         'issue': 'GitHub repo not found (deleted or private)',
                         'severity': 'high'
                     })
                     print(f"   ⚠️  Repo not found")
-                elif 'archived' in r.text.lower() or 'this repository has been archived' in r.text.lower():
-                    col = find_collection(collections, id=link.get('collectionId'))
+                elif 'this repository has been archived' in page_text:
                     freshness_issues.append({
                         'id': link['id'],
                         'name': link.get('name', 'Untitled'),
                         'url': url,
-                        'collection': col['name'] if col else 'Unknown',
+                        'collection': col_name,
                         'issue': 'GitHub repo is archived',
                         'severity': 'medium'
                     })
@@ -415,7 +489,7 @@ def execute_cleanup_actions(dead_links, stale_links, duplicates, freshness_issue
                         print(f"         ❌ Failed: {e}")
 
     # Action 2: Tag stale links (don't auto-delete)
-    if stale_links and len(stale_links) > 0:
+    if stale_links:
         print(f"\n   Stale links found: {len(stale_links)}")
         print("   💡 Suggestion: Review these manually or re-organize them")
         for link in stale_links[:5]:  # Show first 5
@@ -458,12 +532,13 @@ def main(
     check_url_duplicates_enabled: bool = True,
     check_freshness_enabled: bool = True,
     stale_days: int = 365,
-    dead_link_timeout: int = 10
+    dead_link_timeout: int = 10,
+    dead_link_max_retries: int = 2
 ):
     """Windmill-compatible entry point for Linkwarden Cleanup"""
-    global LINKWARDEN_URL, LINKWARDEN_API_KEY, STALE_DAYS, DEAD_LINK_TIMEOUT
+    global LINKWARDEN_URL, LINKWARDEN_API_KEY, STALE_DAYS, DEAD_LINK_TIMEOUT, INBOX_COLLECTION_ID
 
-    LINKWARDEN_URL = linkwarden_url or os.getenv("LINKWARDEN_URL", "http://192.168.10.29:3000")
+    LINKWARDEN_URL = (linkwarden_url or os.getenv("LINKWARDEN_URL", "http://192.168.10.29:3000")).rstrip('/')
     LINKWARDEN_API_KEY = linkwarden_api_key or os.getenv("LINKWARDEN_API_KEY", "")
     STALE_DAYS = stale_days
     DEAD_LINK_TIMEOUT = dead_link_timeout
@@ -479,6 +554,15 @@ def main(
     # Fetch all data
     print("📚 Fetching collections and links...")
     collections = get_collections()
+
+    # Auto-detect inbox collection
+    inbox_col = find_collection(collections, name="Unorganized")
+    if inbox_col:
+        INBOX_COLLECTION_ID = inbox_col['id']
+        print(f"   Found inbox collection: '{inbox_col['name']}' (ID: {INBOX_COLLECTION_ID})")
+    else:
+        print("   ⚠️  Could not find 'Unorganized' collection - stale check will include all collections")
+
     all_links = get_all_links()
     print(f"   Found {len(all_links)} total links")
 
@@ -489,7 +573,7 @@ def main(
     freshness_issues = []
 
     if check_dead_links_enabled:
-        dead_links = check_dead_links(all_links, collections)
+        dead_links = check_dead_links(all_links, collections, max_retries=dead_link_max_retries)
 
     if check_stale_links_enabled:
         stale_links = check_stale_links(all_links, collections)
