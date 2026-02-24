@@ -22,6 +22,15 @@ jobs:
       WM_TOKEN: ${{ secrets.WM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Windmill CLI
+        run: |
+          set -euo pipefail
+          npm install -g windmill-cli
+          wmill --version
 
       - name: Validate required secrets
         run: |
@@ -40,12 +49,6 @@ jobs:
       - name: Deploy Windmill workspace
         run: |
           set -euo pipefail
-          if ! command -v wmill >/dev/null 2>&1; then
-            echo "::error::wmill CLI is not installed on this runner."
-            echo "::error::Install it on the self-hosted runner, then re-run."
-            exit 1
-          fi
-
           wmill sync push \
             --base-url "$WM_URL" \
             --workspace "$WM_WORKSPACE" \
