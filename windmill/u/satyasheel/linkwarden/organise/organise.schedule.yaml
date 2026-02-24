@@ -15,6 +15,6 @@ on_recovery_extra_args: {}
 on_recovery_times: 1
 on_success_extra_args: {}
 schedule: 0 */2 * * * *
-script_path: u/satyasheel/linkwarden/linkwarden_organiser
+script_path: u/satyasheel/linkwarden/organise/organise
 timezone: Europe/London
 ws_error_handler_muted: false

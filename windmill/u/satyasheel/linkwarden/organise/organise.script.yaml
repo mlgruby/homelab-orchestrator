@@ -1,6 +1,6 @@
 summary: AI Librarian - Categorize Linkwarden bookmarks using Gemini AI
 description: ''
-lock: '!inline u/satyasheel/linkwarden/linkwarden_organiser.script.lock'
+lock: '!inline u/satyasheel/linkwarden/organise/organise.script.lock'
 kind: script
 schema:
   type: object
