@@ -1,0 +1,12 @@
+skipSecrets: true
+includeSchedules: true
+includeTriggers: true
+
+includes:
+  - "f/**"
+  - "scripts/**"
+  - "flows/**"
+
+excludes:
+  - "**/.DS_Store"
+  - "**/*.tmp"

@@ -1,0 +1,72 @@
+name: Deploy Homelab Orchestrator
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: homelab-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux, X64, homelab]
+    environment: homelab
+    permissions:
+      contents: read
+    env:
+      WM_URL: ${{ secrets.WM_URL }}
+      WM_WORKSPACE: ${{ secrets.WM_WORKSPACE }}
+      WM_TOKEN: ${{ secrets.WM_TOKEN }}
+      N8N_CONTAINER_NAME: ${{ secrets.N8N_CONTAINER_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        run: |
+          set -euo pipefail
+          missing=0
+          for key in WM_URL WM_WORKSPACE WM_TOKEN N8N_CONTAINER_NAME; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Missing required secret: $key"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Deploy Windmill workspace
+        run: |
+          set -euo pipefail
+          if ! command -v wmill >/dev/null 2>&1; then
+            echo "::error::wmill CLI is not installed on this runner."
+            echo "::error::Install it on the self-hosted runner, then re-run."
+            exit 1
+          fi
+
+          wmill sync push \
+            --base-url "$WM_URL" \
+            --workspace "$WM_WORKSPACE" \
+            --token "$WM_TOKEN" \
+            --yes
+
+      - name: Import n8n workflows
+        run: |
+          set -euo pipefail
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "::error::docker is not available on this runner."
+            exit 1
+          fi
+
+          if [ -z "$(find n8n/workflows -maxdepth 1 -type f -name '*.json' -print -quit)" ]; then
+            echo "No n8n workflow JSON files found under n8n/workflows; skipping import."
+            exit 0
+          fi
+
+          docker exec "$N8N_CONTAINER_NAME" mkdir -p /data/workflows
+          docker cp n8n/workflows/. "$N8N_CONTAINER_NAME:/data/workflows/"
+          docker exec -u node "$N8N_CONTAINER_NAME" \
+            n8n import:workflow --separate --input=/data/workflows
