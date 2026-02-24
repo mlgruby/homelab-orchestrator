@@ -68,6 +68,28 @@ jobs:
             exit 1
           fi
 
+      - name: Generate script metadata and lockfiles
+        working-directory: windmill
+        run: |
+          set -euo pipefail
+          wmill script generate-metadata
+
+      - name: Validate script metadata presence
+        working-directory: windmill
+        run: |
+          set -euo pipefail
+          missing=0
+          while IFS= read -r script; do
+            meta="${script%.*}.script.yaml"
+            if [ ! -f "$meta" ]; then
+              echo "::error::Missing metadata file for script: $script"
+              missing=1
+            fi
+          done < <(find u f -type f \( -name '*.py' -o -name '*.ts' -o -name '*.go' -o -name '*.sh' \) 2>/dev/null)
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
       - name: Deploy Windmill workspace
         working-directory: windmill
         run: |
